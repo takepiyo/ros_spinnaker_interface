@@ -22,7 +22,7 @@ Spike Source:
 
         Args:
             ros_value (usually int): The value of the last ros message. The type depends on the ros message type used.
-            
+
             neuron (int): The ID of the neuron asking when to spike next.
 
             n_neurons (int): The total number of neurons of the spike source.
@@ -40,7 +40,7 @@ Spike Sink:
         For example a value of 10 means on_update is called every 10 ms.
         Defaults to 1 (on_update is called every 1 ms).
 
-    on_update:    
+    on_update:
         This function is called periodically and can be used for periodic changes of the ROS output value.
         The calling rate can be set explicitly (see above).
 
@@ -56,7 +56,7 @@ Spike Sink:
             curr_ros_value (usually int): The current ROS value being published. Use it if you want to calculate
                 the new ros value in dependency of the current one.
 
-        Returns (int): 
+        Returns (int):
             The new ROS value. Again the default type is int, because the default ROS message type used is Int64.
 
     on_spike:
@@ -74,7 +74,7 @@ Spike Sink:
 
 Plotting:
     In both classes you can optionally define a plot function without parameters.
-    If you define it, it is called once at the end of the simulation. I stored all the ros values in a list and 
+    If you define it, it is called once at the end of the simulation. I stored all the ros values in a list and
     used it to plot the ROS values over time in the end. I found it useful while testing the behaviour.
     Changing the name (for example from plot to _plot, you will see this in here) can be used to disable it again.
     Have a look at the examples.
@@ -90,9 +90,10 @@ Notes:
 """
 
 
+from ast import Num
 import random
 import numpy as np
-from population import BasicSpikeSink, BasicSpikeSource
+from .population import BasicSpikeSink, BasicSpikeSource
 
 
 class SpikeSourceConstantRate(BasicSpikeSource):
@@ -126,7 +127,7 @@ class SpikeSourcePoisson(BasicSpikeSource):
             return None
 
         lambd = ros_value
-        interval = int(random.expovariate(1.0/lambd))
+        interval = int(random.expovariate(1.0 / lambd))
         self.intervals.append((interval, neuron))
         return interval
 
@@ -176,7 +177,6 @@ class SpikeSinkSmoothing(BasicSpikeSink):
     """
     on_update_calling_rate = 10  # ms, defaults to 1 if undefined
     ros_values = []
-    
 
     def on_spike(self, spike_time, neuron_id, curr_ros_value):
         new_ros_value = curr_ros_value + 10
@@ -199,13 +199,12 @@ class SpikeSinkConvolution(BasicSpikeSink):
     """
     Each spikes creates a spike response, which quickly increases and then slowly decreases.
     Convolution / Summation of these functions produce a smoothed output value.
-    
+
     The function chosen for the spike response here is f(x) = 0.1*x*exp(2-x)
     """
-    on_update_calling_rate = 10 # ms, defaults to 1 if undefined
+    on_update_calling_rate = 10  # ms, defaults to 1 if undefined
 
-    f = lambda x: 0.1*x*np.exp(2-x)
-    spike_response = [f(i) for i in np.arange(0, 6, 0.1)]
+    spike_response = [i * np.exp(2 - i) for i in np.arange(0, 6, 0.1)]
     output = [1 for i in range(len(spike_response))]
     ros_values = []
 
@@ -236,7 +235,7 @@ class SpikeSinkConvolutionMultipleChannels(BasicSpikeSink):
     """
     Each spikes creates a spike response, which quickly increases and then slowly decreases.
     Convolution / Summation of these functions produce a smoothed output value.
-    
+
     The function chosen for the spike response here is f(x) = x*exp(2-x)
 
     This class is the same as the SpikeSinkConvolution, but uses one output channel per neuron.
@@ -244,11 +243,14 @@ class SpikeSinkConvolutionMultipleChannels(BasicSpikeSink):
 
     TODO complete
     """
-    on_update_calling_rate = 10 # ms, defaults to 1 if undefined
+    on_update_calling_rate = 10  # ms, defaults to 1 if undefined
 
-    f = lambda x: x*np.exp(2-x)
-    spike_response = [f(i) for i in np.arange(0, 6, 0.1)]
-    output = [[1 for i in range(len(spike_response))] for n in range(10)]  # TODO get n_neurons dynamically
+    spike_response = [i * np.exp(2 - i) for i in np.arange(0, 6, 0.1)]
+    output_ = [1 for _ in range(len(spike_response))]
+    output = []
+    for _ in range(10):
+        output.append(output_)
+    # output = [[1 for i in range(len(spike_response))] for n in range(10)]  # TODO get n_neurons dynamically #"souje_response is not difined error is occured?"
     ros_values = []
 
     def on_spike(self, spike_time, neuron_id, curr_ros_value):

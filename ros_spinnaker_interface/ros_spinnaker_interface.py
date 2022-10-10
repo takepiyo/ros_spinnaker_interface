@@ -15,12 +15,7 @@ from std_msgs.msg import Int64
 from multiprocessing import Process, Queue, Lock
 from itertools import count
 
-import spynnaker.pyNN as pynn
-import spynnaker_external_devices_plugin.pyNN as ExternalDevices
-
-from spynnaker_external_devices_plugin.pyNN.connections.\
-    spynnaker_live_spikes_connection import SpynnakerLiveSpikesConnection as LiveSpikesConnection
-
+import spynnaker8 as p
 
 lock = Lock()
 
@@ -37,10 +32,10 @@ class _ROS_Spinnaker_Interface(object):
 
     transfer_function_send (function handle): A handle to the transfer function used to convert
         the ROS input data into spikes.
-    
+
     transfer_function_recv (function handle): A handle to the transfer function used to convert
         the live spikes to a ROS value.
-    
+
     output_population (pynn.Population): The pyNN.Population you want to get the live spikes from.
         Defaults to None, so the live output is disabled.
 
@@ -52,7 +47,7 @@ class _ROS_Spinnaker_Interface(object):
 
     clk_rate (int): The frequency the ROS Node is running with in Hz.
         Defaults to 1000 Hz.
-    
+
     ros_output_rate (int): The frequency with which ros messages are sent out.
         Defaults to 10 Hz.
 
@@ -66,7 +61,7 @@ class _ROS_Spinnaker_Interface(object):
 
 
     Functions:
-        
+
         is_roscore_running(): True if the ros core is runnig else False.
 
         activate_live_output_for(pynn.Population): Set the pynn population you want to get the live spikes from.
@@ -84,7 +79,7 @@ class _ROS_Spinnaker_Interface(object):
         For each parallel interface used, these port numbers are increased by one, so the second interface will use
         the local ports 20000 and 17896 and 12346 on spinnaker, etc.
 
-        If you want to change or extend this interface, consider that there is a sub process started by the 
+        If you want to change or extend this interface, consider that there is a sub process started by the
         interface itself, as well as a thread controlled by spinnaker. Make sure they terminate and communicate properly.
 
         Currently only the std_msgs.msg.Int64 type is supported for ROS Messages. If you want to use your own
@@ -93,20 +88,18 @@ class _ROS_Spinnaker_Interface(object):
             - in run_ros_node adjust the Publisher and Subscriber message types and (if needed) the publisher callback.
     """
 
-
-    _instance_counter = count(0)
-
+    _instance_counter = count()
 
     def __init__(self,
-            n_neurons_source=None,
-            Spike_Source_Class=None,
-            Spike_Sink_Class=None,
-            output_population=None,
-            ros_topic_send='to_spinnaker',
-            ros_topic_recv='from_spinnaker',
-            clk_rate=1000,
-            ros_output_rate=10,
-            benchmark=False):
+                 n_neurons_source=None,
+                 Spike_Source_Class=None,
+                 Spike_Sink_Class=None,
+                 output_population=None,
+                 ros_topic_send='to_spinnaker',
+                 ros_topic_recv='from_spinnaker',
+                 clk_rate=1000,
+                 ros_output_rate=10,
+                 benchmark=False):
 
         # Members
         self.n_neurons = n_neurons_source if n_neurons_source is not None else 1
@@ -119,7 +112,7 @@ class _ROS_Spinnaker_Interface(object):
         self._ros_output_rate = ros_output_rate  # Hz
         self._benchmark = benchmark
 
-        self.interface_id = self._instance_counter.next()
+        self.interface_id = next(self._instance_counter)
 
         self._injector_label = 'injector{}'.format(self.interface_id)
         spike_injector_port = 12345 + self.interface_id
@@ -143,29 +136,25 @@ class _ROS_Spinnaker_Interface(object):
         if self.receiver_active:
             rcv_labels = [self._output_population.label]
 
-        self._spike_injector_population = pynn.Population(size=self.n_neurons,
-                                                          cellclass=ExternalDevices.SpikeInjector,
-                                                          cellparams={'port': spike_injector_port,
-                                                                      'database_notify_port_num':local_port},
-                                                          label=self._injector_label)
+        self._spike_injector_population = p.Population(self.n_neurons,
+                                                       p.external_devices.SpikeInjector(database_notify_port_num=local_port),
+                                                       label=self._injector_label)
+        self._spinnaker_connection = p.external_devices.SpynnakerLiveSpikesConnection(receive_labels=rcv_labels,
+                                                                                      local_port=local_port,
+                                                                                      send_labels=send_labels)
 
-        self._spinnaker_connection = LiveSpikesConnection(receive_labels=rcv_labels,
-                                                          local_port=local_port,
-                                                          send_labels=send_labels)
-
-        self._spinnaker_connection.add_start_callback(self._injector_label, self._init_ros_node)  # spinnaker thread!
+        self._spinnaker_connection.add_start_resume_callback(self._injector_label, self._init_ros_node)  # spinnaker thread!
 
         if self.receiver_active:
             self._spinnaker_connection.add_receive_callback(self._output_population.label, self._incoming_spike_callback)
-
-            ExternalDevices.activate_live_output_for(self._output_population,
-                                                     port=local_recv_port+self.interface_id,
-                                                     database_notify_port_num=self._database_notify_port)
+            p.external_devices.activate_live_output_for(self._output_population,
+                                                        port=local_recv_port + self.interface_id,
+                                                        database_notify_port_num=self._database_notify_port)
 
     def _init_ros_node(self, label, sender):
         """
         Initialize the spike source and start the ros node.
-        
+
         This is started as thread from the spinnaker LiveSpikesConnection at the beginning of the simulation.
         """
         timestep = 1.0 / self._clk_rate * 1000
@@ -185,10 +174,10 @@ class _ROS_Spinnaker_Interface(object):
         if not self.is_roscore_running():
             sys.exit(0)
 
-        p = Process(target=self.run_ros_node)
-        p.daemon = True
+        pr = Process(target=self.run_ros_node)
+        pr.daemon = True
         print("Interface {} started".format(self.interface_id))
-        p.start()
+        pr.start()
 
     def run_ros_node(self):
         """
@@ -216,9 +205,9 @@ class _ROS_Spinnaker_Interface(object):
                 return
 
         rospy.Timer(rospy.Duration(1.0 / self._ros_output_rate), ros_publisher_callback)  # 10 Hz default
-        
+
         ros_timer = rospy.Rate(self._clk_rate)
-        
+
         self.interface_start_time = time.time()
 
         if self._benchmark:
@@ -226,13 +215,13 @@ class _ROS_Spinnaker_Interface(object):
             self._num_timer_warnings = 0
             self._num_ticks = 0
             self._mainloop_execution_times = []
-        
+
         while not rospy.is_shutdown():
             if self.sender_active:
                 self._spike_source._update()
             if self.receiver_active:
                 self._spike_sink._update()
-            
+
             # Count if the mainloop execution takes too long
             if self._benchmark:
                 self._num_ticks += 1
@@ -243,7 +232,7 @@ class _ROS_Spinnaker_Interface(object):
                 last = now
 
             ros_timer.sleep()
-        
+
     def _incoming_ros_package_callback(self, ros_msg):
         """
         Callback for the incoming data. Forwards the data via UDP to the Spinnaker Board.
@@ -270,7 +259,7 @@ class _ROS_Spinnaker_Interface(object):
         except socket.error:
             print('\n\n[!] Cannot communicate with ROS Master. Please check if ROS Core is running.\n\n')
             return False
-    
+
     @property
     def InjectorPopulation(self):
         """
@@ -283,8 +272,8 @@ class _ROS_Spinnaker_Interface(object):
         return 'ROS-Spinnaker-Interface'
 
     def __repr__(self):
-        return self._spike_injector_population
-    
+        return self._spike_injector_population.label
+
     def on_ros_node_shutdown(self):
         # These do nothing on default. The plot functions need to be redefined in the SpikeSink/Source used to
         # actually do something.
@@ -306,11 +295,10 @@ class _ROS_Spinnaker_Interface(object):
             self._spike_source.plot()
         if self.receiver_active:
             self._spike_sink.plot()
-    
+
     def add_simulation_start_callback(self, function):
         if self.sender_active:
             self._spinnaker_connection.add_start_callback(self._injector_label, function)
-
 
 
 def ROS_Spinnaker_Interface(*args, **kwargs):
@@ -323,17 +311,19 @@ def ROS_Spinnaker_Interface(*args, **kwargs):
     Help for the actual _ROS_Spinnaker_Interface:
 
     """
-    try:
-        interface = _ROS_Spinnaker_Interface(*args, **kwargs)
-        return interface.InjectorPopulation
+    # try:
+    #     interface = _ROS_Spinnaker_Interface(*args, **kwargs)
+    #     return interface.InjectorPopulation
 
-    except TypeError:
-        print("\nOops the Initialisation went wrong.")
-        print("Please use help(_ROS_Spinnaker_Interface) and double check the arguments.")
-        raise
+    # except TypeError:
+    #     print("\nOops the Initialisation went wrong.")
+    #     print("Please use help(_ROS_Spinnaker_Interface) and double check the arguments.")
+    #     raise
+    interface = _ROS_Spinnaker_Interface(*args, **kwargs)
+    return interface.InjectorPopulation
+
 
 ROS_Spinnaker_Interface.__doc__ += pydoc.text.document(_ROS_Spinnaker_Interface)  # append help(_ROS_Spinnaker_Interface)
-
 
 
 if __name__ == '__main__':

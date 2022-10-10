@@ -11,59 +11,57 @@ You will also need a ROS Listener to receive data.
 Make sure they communicate over the same ROS topics and std_msgs.Int64 ROS Messages used in here.
 """
 
-import spynnaker.pyNN as pynn
-
+import spynnaker8 as p
 from ros_spinnaker_interface import ROS_Spinnaker_Interface
 # import transfer_functions as tf
 from ros_spinnaker_interface import SpikeSinkSmoothing
 
+import pyNN.utility.plotting as plot
+
 
 ts = 0.1
 n_neurons = 1
-simulation_time = 10000  # ms
+simulation_time = 100000  # ms
 
 
-pynn.setup(timestep=ts, min_delay=ts, max_delay=2.0*ts)
+p.setup(timestep=ts, min_delay=ts, max_delay=2.0 * ts)
 
 
-pop = pynn.Population(size=n_neurons, cellclass=pynn.IF_curr_exp, cellparams={}, label='pop')
+pop = p.Population(size=n_neurons, cellclass=p.IF_curr_exp, cellparams={}, label='pop')
 
 
 # The ROS_Spinnaker_Interface just needs to be initialised. The following parameters are possible:
 ros_interface = ROS_Spinnaker_Interface(
-        Spike_Sink_Class=SpikeSinkSmoothing,     # the transfer function Spikes -> ROS Output you want to use.
-                                                    # You can choose from the transfer_functions module
-                                                    # or write one yourself.
-        output_population=pop)                      # the pynn population you wish to receive the
-                                                    # live spikes from.
+    Spike_Sink_Class=SpikeSinkSmoothing,     # the transfer function Spikes -> ROS Output you want to use.
+    # You can choose from the transfer_functions module
+    # or write one yourself.
+    output_population=pop)                      # the pynn population you wish to receive the
+# live spikes from.
 
 # Notice that ros_interface will now be None, because there is no SpikeInjector for receiver only.
 # You need a different Spike Source.
 
 # Build your network, run the simulation and optionally record the spikes and voltages.
 
-spike_source = pynn.Population(n_neurons, pynn.SpikeSourcePoisson, {'rate': 10})
-pynn.Projection(spike_source, pop, pynn.OneToOneConnector(weights=5, delays=1))
+spike_source = p.Population(n_neurons, p.SpikeSourcePoisson, {'rate': 10})
+p.Projection(spike_source, pop, p.OneToOneConnector(), p.StaticSynapse(weight=5, delay=1))
 
+pop.record(["spikes", "v"])
+p.run(simulation_time)
 
-pop.record()
-pop.record_v()
+neo = pop.get_data(variables=["spikes", "v"])
+spikes = neo.segments[0].spiketrains
+print(spikes)
+v = neo.segments[0].filter(name="v")[0]
+print(v)
 
-pynn.run(simulation_time)
-
-spikes = pop.getSpikes()
-
-pynn.end()
-
-# Plot
-import pylab
-
-spike_times = [spike[1] for spike in spikes]
-spike_ids = [spike[0] for spike in spikes]
-
-pylab.plot(spike_times, spike_ids, ".")
-pylab.xlabel('Time (ms)')
-pylab.ylabel('Neuron ID')
-pylab.title('Spike Plot')
-pylab.xlim(xmin=0)
-pylab.show()
+p.end()
+fig = plot.Figure(
+    # plot voltage for first ([0]) neuron
+    plot.Panel(v, ylabel="Membrane potential (mv)", data_labels=[
+               pop.label], yticks=True, xlim=(0, simulation_time)),
+    # plot spikes (or in this case spike)
+    plot.Panel(spikes, yticks=True, markersize=5, xlim=(0, simulation_time)), title="Simple Example", annotations="Simulated with {}".format(p.name())
+)
+# plt.show()
+fig.save("reports/{}.png".format(__file__).replace(".py", ""))
