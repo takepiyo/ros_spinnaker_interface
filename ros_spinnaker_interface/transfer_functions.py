@@ -93,7 +93,7 @@ Notes:
 from ast import Num
 import random
 import numpy as np
-from .population import BasicSpikeSink, BasicSpikeSource
+from .population import BasicSpikeSink, BasicSpikeSource, BasicSpikeSinkMulti
 
 
 class SpikeSourceConstantRate(BasicSpikeSource):
@@ -193,6 +193,35 @@ class SpikeSinkSmoothing(BasicSpikeSink):
         plt.plot(self.ros_values)
         plt.title('ROS Values Over Time')
         plt.show()
+
+
+class SpikeSinkSmoothingMulti(BasicSpikeSinkMulti):
+    """
+    Each incoming spike adds a fixed amount to the output value.
+    Every 10 ms the output value is multiplied by 0.95.
+    """
+    on_update_calling_rate = 10  # ms, defaults to 1 if undefined
+
+    def on_spike(self, spike_time, neuron_id, curr_ros_value):
+        new_ros_value = curr_ros_value.copy()
+        new_ros_value[neuron_id] = curr_ros_value[neuron_id] + 10
+        # self.ros_values.append(new_ros_value)
+        return new_ros_value
+
+    def on_update(self, neurons, sim_time, curr_ros_value):
+        new_ros_value = [val * 0.95 for val in curr_ros_value]
+        # self.ros_values.append(new_ros_value)
+        return new_ros_value
+
+    def plot(self):
+        import matplotlib.pyplot as plt
+        import numpy as np
+        fig, ax = plt.subplots()
+        val = np.array(self.ros_values).T
+        for i in range(self._n_neurons):
+            ax.plot(val[i, :])
+        # ax.title('ROS Values Over Time')
+        fig.savefig("reports/ros_values.png")
 
 
 class SpikeSinkConvolution(BasicSpikeSink):

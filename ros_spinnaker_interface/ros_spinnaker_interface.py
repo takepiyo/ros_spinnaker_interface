@@ -11,7 +11,8 @@ import socket
 import sys
 import time
 import pydoc
-from std_msgs.msg import Int64
+from std_msgs.msg import Float32MultiArray
+# from std_msgs.msg import Int64
 from multiprocessing import Process, Queue, Lock
 from itertools import count
 
@@ -190,9 +191,10 @@ class _ROS_Spinnaker_Interface(object):
         rospy.init_node('spinnaker_ros_interface{}'.format(self.interface_id), anonymous=True)
 
         if self.receiver_active:
-            publisher = rospy.Publisher(self.recv_topic, Int64, queue_size=10)
+            publisher = rospy.Publisher(self.recv_topic, Float32MultiArray, queue_size=10)
+            # publisher = rospy.Publisher(self.recv_topic, Int64, queue_size=10)
         if self.sender_active:
-            rospy.Subscriber(self.send_topic, Int64, self._incoming_ros_package_callback)
+            rospy.Subscriber(self.send_topic, Float32MultiArray, self._incoming_ros_package_callback)
 
         rospy.on_shutdown(self.on_ros_node_shutdown)
 
@@ -200,7 +202,10 @@ class _ROS_Spinnaker_Interface(object):
             if not self.receiver_active:
                 return
             try:
-                publisher.publish(self._spike_sink._get_ros_value())
+                array = Float32MultiArray()
+                array.data = self._spike_sink._get_ros_value()
+                publisher.publish(array)
+                # publisher.publish(self._spike_sink._get_ros_value())
             except rospy.ROSException:
                 return
 
