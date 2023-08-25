@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-'''
+"""
 @file 	spike_source.py
 @author Stephan Reith
 @date 	02.08.2016
 
 Spike Source for the ROS-Spinnaker-Interface
-'''
+"""
 
 
 import time
-
+import rospy
 
 class Neuron(object):
     """
@@ -28,7 +28,6 @@ class Neuron(object):
 
     def __repr__(self):
         return str(self.__dict__)
-
 
 class BasicSpikeSource(object):
 
@@ -92,8 +91,7 @@ class BasicSpikeSink(object):
 
         self._ros_value = 0
 
-        self._neurons = [Neuron(key=i, spike_times=[])
-                         for i in range(n_neurons)]
+        self._neurons = [Neuron(key=i, spike_times=[]) for i in range(n_neurons)]
 
         if hasattr(self, "on_update_calling_rate"):
             self.on_update_calling_rate = max(self.on_update_calling_rate / timestep, 1)
@@ -102,8 +100,11 @@ class BasicSpikeSink(object):
             self.on_update_calling_rate = 1
 
         # get all class attributes defined in the subclasses
-        static_class_attributes = [attr for attr in self.__class__.__dict__
-                                   if not callable(getattr(self, attr)) and not attr.startswith('__')]
+        static_class_attributes = [
+            attr
+            for attr in self.__class__.__dict__
+            if not callable(getattr(self, attr)) and not attr.startswith("__")
+        ]
 
         # and make them object members
         # this feature is currently unused but useful when controlling this base class based on static child attributes
@@ -130,7 +131,9 @@ class BasicSpikeSink(object):
             self._neurons[neuron_id].spike_times.append(spike_time)
 
             new_ros_value = self.on_spike(spike_time, neuron_id, self._ros_value)
-            self._ros_value = new_ros_value if new_ros_value is not None else self._ros_value
+            self._ros_value = (
+                new_ros_value if new_ros_value is not None else self._ros_value
+            )
 
         self._call_counter += 1
 
@@ -140,18 +143,24 @@ class BasicSpikeSink(object):
             # Call on_update with a specific rate
             sim_time = int((time.time() - self._sim_start) * 1000)  # ms
             new_ros_value = self.on_update(self._neurons, sim_time, self._ros_value)
-            self._ros_value = new_ros_value if new_ros_value is not None else self._ros_value
+            self._ros_value = (
+                new_ros_value if new_ros_value is not None else self._ros_value
+            )
 
     def _get_ros_value(self):
         return int(self._ros_value)
 
     def on_spike(self, spike_time, neuron_id, curr_ros_value):
-        raise NotImplementedError("Please implement on_spike(...) in a subclass to build your own spike sink " +
-                                  "or choose a spike sink from the transfer_functions module.")
+        raise NotImplementedError(
+            "Please implement on_spike(...) in a subclass to build your own spike sink "
+            + "or choose a spike sink from the transfer_functions module."
+        )
 
     def on_update(self, neurons, sim_time, curr_ros_value):
-        raise NotImplementedError("Please implement on_update(...) in a subclass to build your own spike sink " +
-                                  "or choose a spike sink from the transfer_functions module.")
+        raise NotImplementedError(
+            "Please implement on_update(...) in a subclass to build your own spike sink "
+            + "or choose a spike sink from the transfer_functions module."
+        )
 
     def plot(self):
         pass
@@ -169,8 +178,7 @@ class BasicSpikeSinkMulti(object):
 
         self._ros_value = [0 for _ in range(n_neurons)]
 
-        self._neurons = [Neuron(key=i, spike_times=[])
-                         for i in range(n_neurons)]
+        self._neurons = [Neuron(key=i, spike_times=[]) for i in range(n_neurons)]
         self.ros_values = []
 
         if hasattr(self, "on_update_calling_rate"):
@@ -180,8 +188,11 @@ class BasicSpikeSinkMulti(object):
             self.on_update_calling_rate = 1
 
         # get all class attributes defined in the subclasses
-        static_class_attributes = [attr for attr in self.__class__.__dict__
-                                   if not callable(getattr(self, attr)) and not attr.startswith('__')]
+        static_class_attributes = [
+            attr
+            for attr in self.__class__.__dict__
+            if not callable(getattr(self, attr)) and not attr.startswith("__")
+        ]
 
         # and make them object members
         # this feature is currently unused but useful when controlling this base class based on static child attributes
@@ -209,7 +220,7 @@ class BasicSpikeSinkMulti(object):
                 self._neurons[neuron_id].spike_times.append(spike_time)
 
                 new_ros_value = self.on_spike(spike_time, neuron_id, self._ros_value)
-                self._ros_value = new_ros_value if new_ros_value is not None else self._ros_value
+                self._ros_value = new_ros_value
             else:
                 break
 
@@ -221,7 +232,7 @@ class BasicSpikeSinkMulti(object):
             # Call on_update with a specific rate
             sim_time = int((time.time() - self._sim_start) * 1000)  # ms
             new_ros_value = self.on_update(self._neurons, sim_time, self._ros_value)
-            self._ros_value = new_ros_value if new_ros_value is not None else self._ros_value
+            self._ros_value = new_ros_value
 
         self.ros_values.append(self._ros_value)
 
@@ -229,12 +240,16 @@ class BasicSpikeSinkMulti(object):
         return self._ros_value
 
     def on_spike(self, spike_time, neuron_id, curr_ros_value):
-        raise NotImplementedError("Please implement on_spike(...) in a subclass to build your own spike sink " +
-                                  "or choose a spike sink from the transfer_functions module.")
+        raise NotImplementedError(
+            "Please implement on_spike(...) in a subclass to build your own spike sink "
+            + "or choose a spike sink from the transfer_functions module."
+        )
 
     def on_update(self, neurons, sim_time, curr_ros_value):
-        raise NotImplementedError("Please implement on_update(...) in a subclass to build your own spike sink " +
-                                  "or choose a spike sink from the transfer_functions module.")
+        raise NotImplementedError(
+            "Please implement on_update(...) in a subclass to build your own spike sink "
+            + "or choose a spike sink from the transfer_functions module."
+        )
 
     def plot(self):
         pass

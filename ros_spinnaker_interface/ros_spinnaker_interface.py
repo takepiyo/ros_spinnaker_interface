@@ -1,17 +1,18 @@
 #!/usr/bin/env python
-'''
+"""
 @file 	ros_spinnaker_interface.py
 @author Stephan Reith
 @date 	13.07.2016
 
-'''
+"""
 
 import rospy
 import socket
 import sys
 import time
 import pydoc
-from std_msgs.msg import Float32MultiArray
+from std_msgs.msg import Int64, Float32MultiArray
+
 # from std_msgs.msg import Int64
 from multiprocessing import Process, Queue, Lock
 from itertools import count
@@ -29,7 +30,7 @@ class _ROS_Spinnaker_Interface(object):
 
     Args:
 
-    n_neurons_source (int):  The number of neurons of the Spike Source.
+    n_neurons (int):  The number of neurons of the Spike Source.
 
     transfer_function_send (function handle): A handle to the transfer function used to convert
         the ROS input data into spikes.
@@ -91,23 +92,26 @@ class _ROS_Spinnaker_Interface(object):
 
     _instance_counter = count()
 
-    def __init__(self,
-                 n_neurons_source=None,
-                 Spike_Source_Class=None,
-                 Spike_Sink_Class=None,
-                 output_population=None,
-                 ros_topic_send='to_spinnaker',
-                 ros_topic_recv='from_spinnaker',
-                 clk_rate=1000,
-                 ros_output_rate=10,
-                 benchmark=False):
-
+    def __init__(
+        self,
+        n_neurons=None,
+        Spike_Source_Class=None,
+        Spike_Sink_Class=None,
+        output_population=None,
+        ros_topic_spike_send="to_spinnaker",
+        ros_topic_poisson_rate="to_spinnaker_poisson",
+        ros_topic_recv="from_spinnaker",
+        clk_rate=1000,
+        ros_output_rate=10,
+        benchmark=False,
+    ):
         # Members
-        self.n_neurons = n_neurons_source if n_neurons_source is not None else 1
+        self.n_neurons = n_neurons if n_neurons is not None else 1
         self._Spike_Source_Class = Spike_Source_Class
         self._Spike_Sink_Class = Spike_Sink_Class
         self._output_population = output_population
-        self.send_topic = ros_topic_send
+        self.send_spike_topic = ros_topic_spike_send
+        self.send_poisson_topic = ros_topic_poisson_rate
         self.recv_topic = ros_topic_recv
         self._clk_rate = clk_rate  # in Hz
         self._ros_output_rate = ros_output_rate  # Hz
@@ -115,42 +119,57 @@ class _ROS_Spinnaker_Interface(object):
 
         self.interface_id = next(self._instance_counter)
 
-        self._injector_label = 'injector{}'.format(self.interface_id)
+        self._injector_label = "injector{}".format(self.interface_id)
         spike_injector_port = 12345 + self.interface_id
         local_port = 19999 + self.interface_id
+        self.poisson_rate_control_port = 30000 + self.interface_id
         local_recv_port = 17895
         self._database_notify_port = local_port
 
         self._queue_ros_spinnaker = Queue()
+        self._queue_ros_poisson_rate = Queue()
         self._queue_spinnaker_ros = Queue()
 
         # My own "population" data structures to send and receive spikes, initialized later.
         self._spike_source = None
+        self._poisson_rate_control = None
         self._spike_sink = None
 
         send_labels = [self._injector_label]
         rcv_labels = None
 
-        self.sender_active = n_neurons_source is not None and self._Spike_Source_Class is not None
-        self.receiver_active = self._output_population is not None and self._Spike_Sink_Class is not None
+        self.sender_active = (
+            n_neurons is not None and self._Spike_Source_Class is not None
+        )
+        self.receiver_active = (
+            self._output_population is not None and self._Spike_Sink_Class is not None
+        )
 
         if self.receiver_active:
             rcv_labels = [self._output_population.label]
 
-        self._spike_injector_population = p.Population(self.n_neurons,
-                                                       p.external_devices.SpikeInjector(database_notify_port_num=local_port),
-                                                       label=self._injector_label)
-        self._spinnaker_connection = p.external_devices.SpynnakerLiveSpikesConnection(receive_labels=rcv_labels,
-                                                                                      local_port=local_port,
-                                                                                      send_labels=send_labels)
+        self._spike_injector_population = p.Population(
+            self.n_neurons,
+            p.external_devices.SpikeInjector(database_notify_port_num=local_port),
+            label=self._injector_label,
+        )
+        self._spinnaker_connection = p.external_devices.SpynnakerLiveSpikesConnection(
+            receive_labels=rcv_labels, local_port=local_port, send_labels=send_labels
+        )
 
-        self._spinnaker_connection.add_start_resume_callback(self._injector_label, self._init_ros_node)  # spinnaker thread!
+        self._spinnaker_connection.add_start_resume_callback(
+            self._injector_label, self._init_ros_node
+        )  # spinnaker thread!
 
         if self.receiver_active:
-            self._spinnaker_connection.add_receive_callback(self._output_population.label, self._incoming_spike_callback)
-            p.external_devices.activate_live_output_for(self._output_population,
-                                                        port=local_recv_port + self.interface_id,
-                                                        database_notify_port_num=self._database_notify_port)
+            self._spinnaker_connection.add_receive_callback(
+                self._output_population.label, self._incoming_spike_callback
+            )
+            p.external_devices.activate_live_output_for(
+                self._output_population,
+                port=local_recv_port + self.interface_id,
+                database_notify_port_num=self._database_notify_port,
+            )
 
     def _init_ros_node(self, label, sender):
         """
@@ -161,16 +180,15 @@ class _ROS_Spinnaker_Interface(object):
         timestep = 1.0 / self._clk_rate * 1000
 
         if self.sender_active:
-            self._spike_source = self._Spike_Source_Class(self.n_neurons,
-                                                          label,
-                                                          sender,
-                                                          self._queue_ros_spinnaker,
-                                                          timestep)
-
+            self._spike_source = self._Spike_Source_Class(
+                self.n_neurons, label, sender, self._queue_ros_spinnaker, timestep
+            )
         if self.receiver_active:
-            self._spike_sink = self._Spike_Sink_Class(len(self._output_population),  # get number of neurons
-                                                      self._queue_spinnaker_ros,
-                                                      timestep)
+            self._spike_sink = self._Spike_Sink_Class(
+                len(self._output_population),  # get number of neurons
+                self._queue_spinnaker_ros,
+                timestep,
+            )
 
         if not self.is_roscore_running():
             sys.exit(0)
@@ -188,13 +206,24 @@ class _ROS_Spinnaker_Interface(object):
 
         The tick generator makes sure that it runs once per timestep.
         """
-        rospy.init_node('spinnaker_ros_interface{}'.format(self.interface_id), anonymous=True)
+        rospy.init_node(
+            "spinnaker_ros_interface{}".format(self.interface_id), anonymous=True
+        )
 
         if self.receiver_active:
-            publisher = rospy.Publisher(self.recv_topic, Float32MultiArray, queue_size=10)
-            # publisher = rospy.Publisher(self.recv_topic, Int64, queue_size=10)
+            publisher = rospy.Publisher(
+                self.recv_topic, Float32MultiArray, queue_size=10
+            )
+
         if self.sender_active:
-            rospy.Subscriber(self.send_topic, Float32MultiArray, self._incoming_ros_package_callback)
+            # rospy.Subscriber(
+            #     self.send_spike_topic,
+            #     Float32MultiArray,
+            #     self._incoming_ros_package_callback,
+            # )
+            rospy.Subscriber(
+                self.send_spike_topic, Int64, self._incoming_ros_package_callback
+            )
 
         rospy.on_shutdown(self.on_ros_node_shutdown)
 
@@ -209,14 +238,16 @@ class _ROS_Spinnaker_Interface(object):
             except rospy.ROSException:
                 return
 
-        rospy.Timer(rospy.Duration(1.0 / self._ros_output_rate), ros_publisher_callback)  # 10 Hz default
+        rospy.Timer(
+            rospy.Duration(1.0 / self._ros_output_rate), ros_publisher_callback
+        )  # 10 Hz default
 
         ros_timer = rospy.Rate(self._clk_rate)
 
         self.interface_start_time = time.time()
 
         if self._benchmark:
-            last = time.clock()
+            last = time.process_time()
             self._num_timer_warnings = 0
             self._num_ticks = 0
             self._mainloop_execution_times = []
@@ -224,13 +255,15 @@ class _ROS_Spinnaker_Interface(object):
         while not rospy.is_shutdown():
             if self.sender_active:
                 self._spike_source._update()
+            # if self.poisson_rate_control_active:
+            #     self._poisson_rate_control._update()
             if self.receiver_active:
                 self._spike_sink._update()
 
             # Count if the mainloop execution takes too long
             if self._benchmark:
                 self._num_ticks += 1
-                now = time.clock()
+                now = time.process_time()
                 self._mainloop_execution_times.append(now - last)
                 if (now - last) > (1.0 / self._clk_rate):
                     self._num_timer_warnings += 1
@@ -242,7 +275,17 @@ class _ROS_Spinnaker_Interface(object):
         """
         Callback for the incoming data. Forwards the data via UDP to the Spinnaker Board.
         """
-        self._queue_ros_spinnaker.put(ros_msg.data)  # data is the name of the ros std_msgs data field.
+        self._queue_ros_spinnaker.put(
+            ros_msg.data
+        )  # data is the name of the ros std_msgs data field.
+
+    def _incoming_ros_poisson_rate_callback(self, ros_msg):
+        """
+        Callback for the incoming data. Forwards the data via UDP to the Spinnaker Board.
+        """
+        self._queue_ros_poisson_rate.put(
+            ros_msg.data
+        )  # data is the name of the ros std_msgs data field.
 
     def _incoming_spike_callback(self, label, time, neuron_ids):
         """
@@ -262,7 +305,9 @@ class _ROS_Spinnaker_Interface(object):
             return True
 
         except socket.error:
-            print('\n\n[!] Cannot communicate with ROS Master. Please check if ROS Core is running.\n\n')
+            print(
+                "\n\n[!] Cannot communicate with ROS Master. Please check if ROS Core is running.\n\n"
+            )
             return False
 
     @property
@@ -274,7 +319,7 @@ class _ROS_Spinnaker_Interface(object):
         return self._spike_injector_population if self.sender_active else None
 
     def __str__(self):
-        return 'ROS-Spinnaker-Interface'
+        return "ROS-Spinnaker-Interface"
 
     def __repr__(self):
         return self._spike_injector_population.label
@@ -288,12 +333,25 @@ class _ROS_Spinnaker_Interface(object):
             print("Interface {} Benchmark".format(self.interface_id))
             # print("startet running on time {}".format(self.interface_start_time))
             # print("stopped runnning on time {}".format(time.time()))
-            print("Number of times the mainloop took too long: {}".format(self._num_timer_warnings))
+            print(
+                "Number of times the mainloop took too long: {}".format(
+                    self._num_timer_warnings
+                )
+            )
             print("Number of Mainloop Calls: {}".format(self._num_ticks))
             import numpy as np
+
             mean_execution_time = np.mean(self._mainloop_execution_times)
-            print("Mean Mainloop Execution Time: {} ms, (max {} ms)".format(mean_execution_time, 1.0 / self._clk_rate))
-            print("Highest possible interface clock rate: {} Hz\n".format(1.0 / mean_execution_time))
+            print(
+                "Mean Mainloop Execution Time: {} ms, (max {} ms)".format(
+                    mean_execution_time, 1.0 / self._clk_rate
+                )
+            )
+            print(
+                "Highest possible interface clock rate: {} Hz\n".format(
+                    1.0 / mean_execution_time
+                )
+            )
             lock.release()
 
         if self.sender_active:
@@ -303,7 +361,9 @@ class _ROS_Spinnaker_Interface(object):
 
     def add_simulation_start_callback(self, function):
         if self.sender_active:
-            self._spinnaker_connection.add_start_callback(self._injector_label, function)
+            self._spinnaker_connection.add_start_callback(
+                self._injector_label, function
+            )
 
 
 def ROS_Spinnaker_Interface(*args, **kwargs):
@@ -328,8 +388,10 @@ def ROS_Spinnaker_Interface(*args, **kwargs):
     return interface.InjectorPopulation
 
 
-ROS_Spinnaker_Interface.__doc__ += pydoc.text.document(_ROS_Spinnaker_Interface)  # append help(_ROS_Spinnaker_Interface)
+ROS_Spinnaker_Interface.__doc__ += pydoc.text.document(
+    _ROS_Spinnaker_Interface
+)  # append help(_ROS_Spinnaker_Interface)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pass

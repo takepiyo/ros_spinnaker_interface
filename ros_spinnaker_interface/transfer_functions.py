@@ -93,7 +93,11 @@ Notes:
 from ast import Num
 import random
 import numpy as np
-from .population import BasicSpikeSink, BasicSpikeSource, BasicSpikeSinkMulti
+from .population import (
+    BasicSpikeSink,
+    BasicSpikeSource,
+    BasicSpikeSinkMulti,
+)
 
 
 class SpikeSourceConstantRate(BasicSpikeSource):
@@ -164,7 +168,9 @@ class SpikeSinkSpikesPerWindow(BasicSpikeSink):
 
         num_spikes_per_neuron = 0
         for neuron in neurons:
-            num_spikes_per_neuron += sum(sim_time - time_window < spike_time for spike_time in neuron.spike_times)
+            num_spikes_per_neuron += sum(
+                sim_time - time_window < spike_time for spike_time in neuron.spike_times
+            )
 
         # print('\t[SPIKE]\tReceived {} spikes in the last {} ms'.format(num_spikes_per_neuron, time_window))
         return num_spikes_per_neuron
@@ -175,11 +181,12 @@ class SpikeSinkSmoothing(BasicSpikeSink):
     Each incoming spike adds a fixed amount to the output value.
     Every 10 ms the output value is multiplied by 0.95.
     """
+
     on_update_calling_rate = 10  # ms, defaults to 1 if undefined
     ros_values = []
 
     def on_spike(self, spike_time, neuron_id, curr_ros_value):
-        new_ros_value = curr_ros_value + 10
+        new_ros_value = curr_ros_value + 1
         self.ros_values.append(new_ros_value)
         return new_ros_value
 
@@ -190,8 +197,9 @@ class SpikeSinkSmoothing(BasicSpikeSink):
 
     def _plot(self):
         import matplotlib.pyplot as plt
+
         plt.plot(self.ros_values)
-        plt.title('ROS Values Over Time')
+        plt.title("ROS Values Over Time")
         plt.show()
 
 
@@ -200,11 +208,12 @@ class SpikeSinkSmoothingMulti(BasicSpikeSinkMulti):
     Each incoming spike adds a fixed amount to the output value.
     Every 10 ms the output value is multiplied by 0.95.
     """
+
     on_update_calling_rate = 10  # ms, defaults to 1 if undefined
 
     def on_spike(self, spike_time, neuron_id, curr_ros_value):
         new_ros_value = curr_ros_value.copy()
-        new_ros_value[neuron_id] = curr_ros_value[neuron_id] + 10
+        new_ros_value[neuron_id] = curr_ros_value[neuron_id] + 1
         # self.ros_values.append(new_ros_value)
         return new_ros_value
 
@@ -216,6 +225,7 @@ class SpikeSinkSmoothingMulti(BasicSpikeSinkMulti):
     def plot(self):
         import matplotlib.pyplot as plt
         import numpy as np
+
         fig, ax = plt.subplots()
         val = np.array(self.ros_values).T
         for i in range(self._n_neurons):
@@ -231,6 +241,7 @@ class SpikeSinkConvolution(BasicSpikeSink):
 
     The function chosen for the spike response here is f(x) = 0.1*x*exp(2-x)
     """
+
     on_update_calling_rate = 10  # ms, defaults to 1 if undefined
 
     spike_response = [i * np.exp(2 - i) for i in np.arange(0, 6, 0.1)]
@@ -238,24 +249,27 @@ class SpikeSinkConvolution(BasicSpikeSink):
     ros_values = []
 
     def on_spike(self, spike_time, neuron_id, curr_ros_value):
-        self.output = np.convolve(self.output, self.spike_response, 'same')
+        self.output = np.convolve(self.output, self.spike_response, "same")
 
     def on_update(self, neurons, sim_time, curr_ros_value):
-        new_ros_value, self.output = self.output[0], np.append(self.output[1:], 1)  # FIFO
+        new_ros_value, self.output = self.output[0], np.append(
+            self.output[1:], 1
+        )  # FIFO
         self.ros_values.append(new_ros_value)
         return new_ros_value
 
     def plot(self):
         import matplotlib.pyplot as plt
+
         plt.figure(1)
 
         plt.subplot(211)
         plt.plot(self.spike_response)
-        plt.title('Spike Response')
+        plt.title("Spike Response")
 
         plt.subplot(212)
         plt.plot(self.ros_values)
-        plt.title('ROS Values Over Time')
+        plt.title("ROS Values Over Time")
 
         plt.show()
 
@@ -272,6 +286,7 @@ class SpikeSinkConvolutionMultipleChannels(BasicSpikeSink):
 
     TODO complete
     """
+
     on_update_calling_rate = 10  # ms, defaults to 1 if undefined
 
     spike_response = [i * np.exp(2 - i) for i in np.arange(0, 6, 0.1)]
@@ -283,12 +298,14 @@ class SpikeSinkConvolutionMultipleChannels(BasicSpikeSink):
     ros_values = []
 
     def on_spike(self, spike_time, neuron_id, curr_ros_value):
-        self.output[neuron_id] = np.convolve(self.output, self.spike_response, 'same')
+        self.output[neuron_id] = np.convolve(self.output, self.spike_response, "same")
 
     def on_update(self, neurons, sim_time, curr_ros_value):
         values = []
         for neuron in neurons:
-            v, self.output[neuron.key] = self.output[neuron.key][0], np.append(self.output[neuron.key][1:], 1)  # FIFO
+            v, self.output[neuron.key] = self.output[neuron.key][0], np.append(
+                self.output[neuron.key][1:], 1
+            )  # FIFO
             values.append(v)
         new_ros_value = sum(values)
         self.ros_values.append(new_ros_value)

@@ -33,7 +33,7 @@ pop = p.Population(size=n_neurons, cellclass=p.IF_curr_exp, cellparams={}, label
 
 # The ROS_Spinnaker_Interface just needs to be initialised. The following parameters are possible:
 ros_interface = ROS_Spinnaker_Interface(
-    n_neurons_source=n_neurons,                 # number of neurons of the injector population
+    n_neurons=n_neurons,                 # number of neurons of the injector population
     Spike_Source_Class=SpikeSourcePoisson,   # the transfer function ROS Input -> Spikes you want to use.
     Spike_Sink_Class=SpikeSinkSmoothing,     # the transfer function Spikes -> ROS Output you want to use.
     # You can choose from the transfer_functions module
